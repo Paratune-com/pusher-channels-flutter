@@ -101,9 +101,17 @@ class PusherChannelsFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAw
                 pusher!!.disconnect()
             }
             val options = PusherOptions()
-            if (call.argument<String>("cluster") != null) options.setCluster(call.argument("cluster"))
+            // Prefer explicit self-hosted host (Soketi) over Pusher Cloud cluster, matching iOS.
+            val host = call.argument<String>("host")
+            if (!host.isNullOrEmpty()) {
+                options.setHost(host)
+            } else if (call.argument<String>("cluster") != null) {
+                options.setCluster(call.argument("cluster"))
+            }
             if (call.argument<Boolean>("useTLS") != null) options.isUseTLS =
                 call.argument("useTLS")!!
+            call.argument<Number>("wsPort")?.toInt()?.let { options.setWsPort(it) }
+            call.argument<Number>("wssPort")?.toInt()?.let { options.setWssPort(it) }
             if (call.argument<Long>("activityTimeout") != null) options.activityTimeout =
                 call.argument("activityTimeout")!!
             if (call.argument<Long>("pongTimeout") != null) options.pongTimeout =
@@ -114,10 +122,14 @@ class PusherChannelsFlutterPlugin : FlutterPlugin, MethodCallHandler, ActivityAw
                 call.argument("maxReconnectGapInSeconds")!!
             if (call.argument<String>("authEndpoint") != null) options.channelAuthorizer =
                 HttpChannelAuthorizer(call.argument("authEndpoint"))
-            if (call.argument<String>("authorizer") != null) options.channelAuthorizer = this
+            // Dart passes authorizer as Bool (same as iOS); accept Bool or truthy value.
+            when (val authorizer = call.argument<Any>("authorizer")) {
+                is Boolean -> if (authorizer) options.channelAuthorizer = this
+                is String -> if (authorizer.isNotEmpty()) options.channelAuthorizer = this
+            }
             if (call.argument<String>("proxy") != null) {
-                val (host, port) = call.argument<String>("proxy")!!.split(':')
-                options.proxy = Proxy(Proxy.Type.HTTP, InetSocketAddress(host, port.toInt()))
+                val (proxyHost, proxyPort) = call.argument<String>("proxy")!!.split(':')
+                options.proxy = Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort.toInt()))
             }
             pusher = Pusher(call.argument("apiKey"), options)
             Log.i(TAG, "Start $pusher")
